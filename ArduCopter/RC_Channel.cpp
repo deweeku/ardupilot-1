@@ -108,6 +108,7 @@ void RC_Channel_Copter::init_aux_function(const aux_func_t ch_option, const aux_
     case AUX_FUNC::SUPERSIMPLE_MODE:
     case AUX_FUNC::SURFACE_TRACKING:
     case AUX_FUNC::WINCH_ENABLE:
+    case AUX_FUNC::MEM_AB_WP:
         do_aux_function(ch_option, ch_flag);
         break;
     default:
@@ -472,7 +473,7 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
             copter.userhook_auxSwitch3(ch_flag);
             break;
 #endif
-
+/*
         case AUX_FUNC::ZIGZAG:
 #if MODE_ZIGZAG_ENABLED == ENABLED
             do_aux_function_change_mode(Mode::Number::ZIGZAG, ch_flag);
@@ -496,7 +497,7 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
             }
 #endif
             break;
-
+*/
         case AUX_FUNC::STABILIZE:
             do_aux_function_change_mode(Mode::Number::STABILIZE, ch_flag);
             break;
@@ -558,7 +559,20 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
                 break;
             }
             break;
+            case AUX_FUNC::MEM_AB_WP:
+            if (copter.flightmode == &copter.mode_ab_waypoint)
+            {
+                switch(ch_flag){
+                case HIGH:
+                    copter.mode_ab_waypoint.Mem_AB_Point_Tricked();
+                    break;
 
+                    default: 
+                    
+                    break;
+                }
+            }
+            break;
     default:
         RC_Channel::do_aux_function(ch_option, ch_flag);
         break;

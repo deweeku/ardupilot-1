@@ -33,7 +33,8 @@ public:
         SMART_RTL =    21,  // SMART_RTL returns to home by retracing its steps
         FLOWHOLD  =    22,  // FLOWHOLD holds position with optical flow without rangefinder
         FOLLOW    =    23,  // follow attempts to follow another vehicle or ground station
-        ZIGZAG    =    24,  // ZIGZAG mode is able to fly in a zigzag manner with predefined point A and point B
+        //ZIGZAG    =    24,  // ZIGZAG mode is able to fly in a zigzag manner with predefined point A and point B
+        AB_WAYPOINT =  24,  // Record A point and B point then go ZigZag
         SYSTEMID  =    25,  // System ID mode produces automated system identification signals in the controllers
         AUTOROTATE =   26,  // Autonomous autorotation
     };
@@ -1476,3 +1477,63 @@ private:
 
 };
 #endif
+
+class ModeAB_Waypoint : public Mode {
+
+public:
+    // inherit constructor
+    bool init(bool ignore_checks) override;
+    using Mode::Mode;
+    virtual void run() override;
+
+    enum AB_WAYPOINT_STATE {
+        WAIT_A_LOCATION,
+        WAIT_B_LOCATION,
+        EXPAND_TO_LR,
+        CAL_TF,
+        CAL_NEXT_DEST,
+        MOVE_TO_DEST
+    };
+    AB_WAYPOINT_STATE ab_waypoint_state;
+    
+    enum AB_WAYPOINT_AUTO_STATE {
+        SLIDE,
+        TO_TOP_END,
+        TO_BOTTOM_END
+    };
+    AB_WAYPOINT_AUTO_STATE ab_waypoint_auto_state;
+
+    bool requires_GPS() const override { return true; }
+    bool has_manual_throttle() const override { return false; }
+    bool allows_arming(bool from_gcs) const override { return false; }
+    bool is_autopilot() const override { return true; }
+    float spacing_distance = 300; //cm
+
+    void Mem_AB_Point_Tricked(); 
+
+protected:
+
+    const char *name() const override { return "AB_WAYPOINT"; }
+    const char *name4() const override { return "AB_WP"; }
+
+private:
+    Vector3f A_Point_Loc;
+    Vector3f B_Point_Loc;
+    Vector3f Next_Dest_Loc;
+ 
+    Vector2f V_BA, A_Point, A_Point_TF, B_Point, B_Point_TF, Curr_Vehicle_2DPosTF, Next_Dest, Next_Dest_TF,  Prior_Dest_TF;
+    float Angle_of_V_BA;
+
+    enum LR_FLAG {
+        LEFT,
+        RIGHT
+    };
+
+    LR_FLAG lr_flag;
+
+    Vector2f Transform_Point_to_BA_Frame(Vector2f Point_2be_Transformed,Vector2f b_point, float Angle_from_North);
+    Vector2f Transform_BA_Fram_to_Point_NE(Vector2f Point_2be_Transformed,Vector2f b_point, float Angle_from_North);
+    Vector2f Convert_NavPos_to_XYPos(Vector3f NavPos);
+
+    void run_loiter_control();
+};
