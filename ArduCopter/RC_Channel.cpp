@@ -473,7 +473,7 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
             copter.userhook_auxSwitch3(ch_flag);
             break;
 #endif
-/*
+
         case AUX_FUNC::ZIGZAG:
 #if MODE_ZIGZAG_ENABLED == ENABLED
             do_aux_function_change_mode(Mode::Number::ZIGZAG, ch_flag);
@@ -497,7 +497,7 @@ void RC_Channel_Copter::do_aux_function(const aux_func_t ch_option, const aux_sw
             }
 #endif
             break;
-*/
+
         case AUX_FUNC::STABILIZE:
             do_aux_function_change_mode(Mode::Number::STABILIZE, ch_flag);
             break;
