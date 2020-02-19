@@ -81,6 +81,8 @@ void ModeAuto::run()
         break;
 
     case Auto_Spline:
+
+
         spline_run();
         break;
 

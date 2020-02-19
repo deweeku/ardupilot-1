@@ -29,8 +29,8 @@ bool ModeAB_Waypoint::init(bool ignore_checks)
         pos_control->set_alt_target_to_current_alt();
         pos_control->set_desired_velocity_z(inertial_nav.get_velocity_z());
     }
-
     ab_waypoint_state = WAIT_A_LOCATION;
+    ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
     return true;
 }
 
@@ -140,10 +140,8 @@ void ModeAB_Waypoint::run_loiter_control()
 
         // run loiter controller
         loiter_nav->update();
-
         // call attitude controller
         attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
-
         // adjust climb rate using rangefinder
         target_climb_rate = copter.surface_tracking.adjust_climb_rate(target_climb_rate);
 
@@ -215,10 +213,13 @@ void ModeAB_Waypoint::run()
         // Function under above cases are implemented in RC_Channel.cpp ------- RC_Channel_Copter::do_aux_function
         
         case CAL_TF:
+            wp_nav->wp_and_spline_init();
             // CAL_TF from A B point
             // Calulate heading of Vector from B to A
             V_BA = A_Point - B_Point;
             Angle_of_V_BA = -1*(V_BA.angle() - M_PI_2);
+            Top_End_Pos_TF = V_BA.length();
+            Bottom_End_Pos_TF = 0;
             // Angle_of_V_BA = degrees(Angle_of_V_BA);
             A_Point_TF = Transform_Point_to_BA_Frame(A_Point, B_Point, Angle_of_V_BA);
             B_Point_TF = Vector2f(0,0);
@@ -237,58 +238,123 @@ void ModeAB_Waypoint::run()
                 gcs().send_text(MAV_SEVERITY_INFO, "SLIDE TO THE LEFT");
             }
             Prior_Dest_TF = B_Point_TF;
+            prior_ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END;
 
         case CAL_NEXT_DEST:
             // CAL Next Destination
             switch(ab_waypoint_auto_state){
                 case AB_WAYPOINT_AUTO_STATE::SLIDE:
-                    Next_Dest_TF = Vector2f(Prior_Dest_TF.x + spacing_distance, Prior_Dest_TF.y);
-                    if(Next_Dest_TF.y > -0.01f && Next_Dest_TF.y < 0.01f){
+                    if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_TOP_END)
+                    {
+                        Next_Dest_TF = Vector2f(Prior_Dest_TF.x + spacing_distance, Top_End_Pos_TF);
+                        gcs().send_text(MAV_SEVERITY_INFO, "Cal Slide at Top End");
+                    }else if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END){
+
+                        Next_Dest_TF = Vector2f(Prior_Dest_TF.x + spacing_distance, Bottom_End_Pos_TF); 
+                        gcs().send_text(MAV_SEVERITY_INFO, "Cal Slide at Bottom End");           
+                    }
+            
+                    if(Next_Dest_TF.y > Bottom_End_Pos_TF-0.05f && Next_Dest_TF.y < Bottom_End_Pos_TF+0.05f){
                         ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_TOP_END;
+                        gcs().send_text(MAV_SEVERITY_INFO, "Update state to TO_TOP_END");
                     }else{
                         ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END;
+                        gcs().send_text(MAV_SEVERITY_INFO, "Update state to TO_BOTTEM_END");
                     }
+                    
+                    prior_ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::SLIDE;
                     break;
                 case AB_WAYPOINT_AUTO_STATE::TO_TOP_END:
-                    Next_Dest_TF = Vector2f(Prior_Dest_TF.x, Prior_Dest_TF.y + V_BA.length());
+                    //Next_Dest_TF = Vector2f(Prior_Dest_TF.x, Prior_Dest_TF.y + Area_width);
+                    Next_Dest_TF = Vector2f(Prior_Dest_TF.x, Top_End_Pos_TF);
                     ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::SLIDE;
+                    prior_ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_TOP_END;
+                    gcs().send_text(MAV_SEVERITY_INFO, "Cal Top End Dest");
                     break;
                 case AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END:
-                    Next_Dest_TF = Vector2f(Prior_Dest_TF.x, 0);
+                    Next_Dest_TF = Vector2f(Prior_Dest_TF.x, Bottom_End_Pos_TF);
                     ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::SLIDE;
+                    prior_ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END;
+                    gcs().send_text(MAV_SEVERITY_INFO, "Cal Bottom End Dest");
                     break;
             };
             
             Prior_Dest_TF = Next_Dest_TF;
             // Convert Next_Dest_TF to Next_Dest_Loc
             Next_Dest = Transform_BA_Fram_to_Point_NE(Next_Dest_TF, B_Point, Angle_of_V_BA);
-            
-            Next_Dest_Loc = Vector3f(Next_Dest.y, Next_Dest.x, inertial_nav.get_altitude());
+            Current_Alt = inertial_nav.get_altitude();
+            Next_Dest_Loc = Vector3f(Next_Dest.y, Next_Dest.x, Current_Alt);
             wp_nav->set_wp_destination(Next_Dest_Loc,false);
-
+            //pos_control->set_pos_target(Next_Dest_Loc);
             // set motors to full range
             motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
 
         case MOVE_TO_DEST:
-            // Auto to destination
-            wp_nav->update_wpnav();
+            float target_roll, target_pitch;
             float target_climb_rate = get_pilot_desired_climb_rate(channel_throttle->get_control_in());
             target_climb_rate = constrain_float(target_climb_rate, -get_pilot_speed_dn(), g.pilot_speed_up);
-            
-            pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
-            pos_control->update_z_controller();
-            
-            attitude_control->input_euler_angle_roll_pitch_yaw(wp_nav->get_roll(), wp_nav->get_pitch(), V_BA.angle(),true);
+            get_pilot_desired_lean_angles(target_roll, target_pitch, loiter_nav->get_angle_max_cd(), attitude_control->get_althold_lean_angle_max());
 
-            // check destination reached
-            if(wp_nav->reached_wp_destination_xy())
+            switch(ab_waypoint_move_to_dest_state)
             {
-                ab_waypoint_state = CAL_NEXT_DEST;
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT:
+                    run_loiter_control();
+                    if(abs(target_climb_rate)<=0.5) ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST;
+                break;
+
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE:
+                    run_loiter_control();
+                    if(abs(target_pitch)<=0.5){
+                        Vector2f Curr_XYPos = Convert_NavPos_to_XYPos(inertial_nav.get_position());
+                        Vector2f Curr_XYPos_TF = Transform_Point_to_BA_Frame(Curr_XYPos,B_Point,Angle_of_V_BA);
+                        if(ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                        {
+                            if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_TOP_END)
+                            {
+                                Top_End_Pos_TF = Curr_XYPos_TF.y;
+                                gcs().send_text(MAV_SEVERITY_INFO, "Cal Top_End_Pos_TF");
+                            }else if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END){
+                                Bottom_End_Pos_TF = Curr_XYPos_TF.y;
+                                gcs().send_text(MAV_SEVERITY_INFO, "Cal Bottom_End_Pos_TF");
+                            }
+                        }
+                        ab_waypoint_state = CAL_NEXT_DEST;
+                        wp_nav->wp_and_spline_init();
+                        ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
+                    }
+                break;
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST:
+                    Current_Alt = inertial_nav.get_altitude();
+                    Next_Dest_Loc = Vector3f(Next_Dest.y, Next_Dest.x, Current_Alt);
+                    wp_nav->wp_and_spline_init();
+                    wp_nav->set_wp_destination(Next_Dest_Loc,false);
+                    ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
+                break;
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN:
+                    // Auto to destination
+                    wp_nav->update_wpnav();
+                    attitude_control->input_euler_angle_roll_pitch_yaw(wp_nav->get_roll(), wp_nav->get_pitch(),ToDeg(Angle_of_V_BA)*100 ,true);
+                    
+                    // check destination reached
+                    if(wp_nav->reached_wp_destination_xy())
+                    {
+                        gcs().send_text(MAV_SEVERITY_INFO, "Destination reached CAL_NEXT_DEST");
+                        ab_waypoint_state = CAL_NEXT_DEST;
+                    }else{
+                        ab_waypoint_state = MOVE_TO_DEST;
+                    }   
+
+                    if(abs(target_climb_rate)>0.5 && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                        ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT;
+                    else if(abs(target_pitch)>0.5 && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                        ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE;
+
+                break;
+                default:
+                break;
             }
-            else
-            {
-                ab_waypoint_state = MOVE_TO_DEST;
-            }
+            
+            pos_control->update_z_controller();
             
         break;
 

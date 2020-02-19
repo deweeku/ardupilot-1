@@ -1502,6 +1502,16 @@ public:
         TO_BOTTOM_END
     };
     AB_WAYPOINT_AUTO_STATE ab_waypoint_auto_state;
+    AB_WAYPOINT_AUTO_STATE prior_ab_waypoint_auto_state;
+    
+    enum AB_WAYPOINT_MOVE_TO_DEST_STATE{
+        CHANGE_ALT,
+        CHANGE_EDGE,
+        AVOID_OBJ,
+        UPDATE_DEST,
+        NORMAL_RUN
+    };
+    AB_WAYPOINT_MOVE_TO_DEST_STATE ab_waypoint_move_to_dest_state;
 
     bool requires_GPS() const override { return true; }
     bool has_manual_throttle() const override { return false; }
@@ -1523,7 +1533,9 @@ private:
  
     Vector2f V_BA, A_Point, A_Point_TF, B_Point, B_Point_TF, Curr_Vehicle_2DPosTF, Next_Dest, Next_Dest_TF,  Prior_Dest_TF;
     float Angle_of_V_BA;
-
+    float Current_Alt;
+    float Top_End_Pos_TF;
+    float Bottom_End_Pos_TF;
     enum LR_FLAG {
         LEFT,
         RIGHT
