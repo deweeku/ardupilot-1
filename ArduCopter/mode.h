@@ -1508,6 +1508,7 @@ public:
     enum AB_WAYPOINT_MOVE_TO_DEST_STATE{
         CHANGE_ALT,
         CHANGE_EDGE,
+        CHANGE_EXTENSION,
         AVOID_OBJ,
         UPDATE_DEST,
         NORMAL_RUN
@@ -1518,7 +1519,7 @@ public:
     bool has_manual_throttle() const override { return false; }
     bool allows_arming(bool from_gcs) const override { return false; }
     bool is_autopilot() const override { return true; }
-    float spacing_distance = 300; //cm
+    float spacing_distance;
 
     void Mem_AB_Point_Tricked(); 
 

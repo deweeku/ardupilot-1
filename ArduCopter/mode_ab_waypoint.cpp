@@ -31,6 +31,7 @@ bool ModeAB_Waypoint::init(bool ignore_checks)
     }
     ab_waypoint_state = WAIT_A_LOCATION;
     ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
+
     return true;
 }
 
@@ -224,7 +225,8 @@ void ModeAB_Waypoint::run()
             A_Point_TF = Transform_Point_to_BA_Frame(A_Point, B_Point, Angle_of_V_BA);
             B_Point_TF = Vector2f(0,0);
             Curr_Vehicle_2DPosTF = Transform_Point_to_BA_Frame(Convert_NavPos_to_XYPos(inertial_nav.get_position()), B_Point, Angle_of_V_BA);
-
+            spacing_distance = g.ab_slide_space;
+            
             gcs().send_text(MAV_SEVERITY_INFO, "Angle to North = %f",Angle_of_V_BA);
             gcs().send_text(MAV_SEVERITY_INFO, "A_Point_TF = %f, %f",A_Point_TF.x, A_Point_TF.y);
             gcs().send_text(MAV_SEVERITY_INFO, "Curr_Vehicle_2DPos = %f, %f",Curr_Vehicle_2DPosTF.x, Curr_Vehicle_2DPosTF.y);
@@ -239,7 +241,7 @@ void ModeAB_Waypoint::run()
             }
             Prior_Dest_TF = B_Point_TF;
             prior_ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END;
-
+            
         case CAL_NEXT_DEST:
             // CAL Next Destination
             switch(ab_waypoint_auto_state){
@@ -299,12 +301,11 @@ void ModeAB_Waypoint::run()
             {
                 case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT:
                     run_loiter_control();
-                    if(abs(target_climb_rate)<=0.5) ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST;
+                    if(abs(target_climb_rate)<=g.ab_min_input_climb_rate) ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST;
                 break;
-
                 case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE:
                     run_loiter_control();
-                    if(abs(target_pitch)<=0.5 && inertial_nav.get_speed_xy()<=30.0){
+                    if(abs(target_pitch)<=g.ab_min_input_roll_pitch_rate && inertial_nav.get_speed_xy()<=g.ab_min_xy_speed){
                         Vector2f Curr_XYPos = Convert_NavPos_to_XYPos(inertial_nav.get_position());
                         Vector2f Curr_XYPos_TF = Transform_Point_to_BA_Frame(Curr_XYPos,B_Point,Angle_of_V_BA);
                         if(ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
@@ -323,6 +324,23 @@ void ModeAB_Waypoint::run()
                         ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
                     }
                 break;
+
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EXTENSION:
+                    run_loiter_control();
+                    if(abs(target_roll)<=g.ab_min_input_roll_pitch_rate && inertial_nav.get_speed_xy()<=g.ab_min_xy_speed){
+                        Vector2f Curr_XYPos = Convert_NavPos_to_XYPos(inertial_nav.get_position());
+                        Vector2f Curr_XYPos_TF = Transform_Point_to_BA_Frame(Curr_XYPos,B_Point,Angle_of_V_BA);
+                        if(ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                        {
+                            Prior_Dest_TF.x = Curr_XYPos_TF.x;
+                            ab_waypoint_auto_state = prior_ab_waypoint_auto_state;
+                        }
+                        ab_waypoint_state = CAL_NEXT_DEST;
+                        wp_nav->wp_and_spline_init();
+                        ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
+                    }
+                break;
+
                 case AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST:
                     Current_Alt = inertial_nav.get_altitude();
                     Next_Dest_Loc = Vector3f(Next_Dest.y, Next_Dest.x, Current_Alt);
@@ -345,10 +363,12 @@ void ModeAB_Waypoint::run()
                         ab_waypoint_state = MOVE_TO_DEST;
                     }   
 
-                    if(abs(target_climb_rate)>0.5 && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                    if(abs(target_climb_rate)>g.ab_min_input_climb_rate && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
                         ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT;
-                    else if(abs(target_pitch)>0.5 && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                    else if(abs(target_pitch)>g.ab_min_input_roll_pitch_rate && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
                         ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE;
+                    else if(abs(target_roll)>g.ab_min_input_roll_pitch_rate && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
+                        ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EXTENSION;
 
                 break;
                 default:

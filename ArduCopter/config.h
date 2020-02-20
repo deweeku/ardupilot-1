@@ -792,3 +792,20 @@
 #ifndef HAL_FRAME_TYPE_DEFAULT
 #define HAL_FRAME_TYPE_DEFAULT AP_Motors::MOTOR_FRAME_TYPE_X
 #endif
+
+// AB Way Point Mode
+#ifndef AB_MIN_INPUT_ROLL_PITCH_RATE_DEFAULT
+#define AB_MIN_INPUT_ROLL_PITCH_RATE_DEFAULT  5 // centi-dec/s
+#endif
+
+#ifndef AB_MIN_INPUT_CLIMB_RATE_DEFAULT
+#define AB_MIN_INPUT_CLIMB_RATE_DEFAULT  30 // cm/s
+#endif
+
+#ifndef AB_MIN_XY_SPEED_DEFAULT
+#define AB_MIN_XY_SPEED_DEFAULT  30 // cm/s
+#endif
+
+#ifndef AB_SLIDE_SPACE_DEFAULT
+#define AB_SLIDE_SPACE_DEFAULT  300 // cm
+#endif

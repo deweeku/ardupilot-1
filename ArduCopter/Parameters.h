@@ -373,6 +373,11 @@ public:
 
         // 254,255: reserved
 
+        k_param_ab_min_input_roll_pitch_rate = 260,
+        k_param_ab_min_input_climb_rate,
+        k_param_ab_min_xy_speed,
+        k_param_ab_slide_space,
+
         // the k_param_* space is 9-bits in size
         // 511: reserved
     };
@@ -465,6 +470,11 @@ public:
     AP_Int8                 acro_trainer;
     AP_Float                acro_rp_expo;
 
+    // AB Waypoint mode
+    AP_Float    ab_min_input_roll_pitch_rate;
+    AP_Float    ab_min_input_climb_rate;
+    AP_Float    ab_min_xy_speed;
+    AP_Float    ab_slide_space;
     // Note: keep initializers here in the same order as they are declared
     // above.
     Parameters()

@@ -465,6 +465,38 @@ const AP_Param::Info Copter::var_info[] = {
     // @User: Advanced
     GSCALAR(acro_rp_expo,  "ACRO_RP_EXPO",    ACRO_RP_EXPO_DEFAULT),
 #endif
+    // @Param: AB_MIN_INPUT_ROLL_PITCH_RATE
+    // @DisplayName: AB minimum pilot input of roll/pitch rate
+    // @Description: AB minimum pilot input of roll/pitch rate to change program state
+    // @Values: 5 centi-deg/sec by default
+    // @Range: 
+    // @User: 
+    GSCALAR(ab_min_input_roll_pitch_rate,"AB_MIN_INPUT_ROLL_PITCH_RATE",AB_MIN_INPUT_ROLL_PITCH_RATE_DEFAULT),
+
+    // @Param: AB_MIN_INPUT_CLIMB_RATE
+    // @DisplayName: AB minimum pilot input of climb rate
+    // @Description: AB minimum pilot input of climb rate to change program state
+    // @Values: 30 cm/sec by default
+    // @Range: 
+    // @User: 
+    GSCALAR(ab_min_input_climb_rate,"AB_MIN_INPUT_CLIMB_RATE",AB_MIN_INPUT_CLIMB_RATE_DEFAULT),
+
+    // @Param: AB_MIN_XY_SPEED
+    // @DisplayName: AB minimum xy speed
+    // @Description: AB minimum xy to change program state
+    // @Values: 30 cm/sec by default
+    // @Range: 
+    // @User: 
+    GSCALAR(ab_min_xy_speed,"AB_MIN_XY_SPEED",AB_MIN_XY_SPEED_DEFAULT),
+
+    // @Param: AB_SLIDE_SPACE
+    // @DisplayName: AB slide space
+    // @Description: AB slide space
+    // @Values: 3m by default
+    // @Range: 
+    // @User: 
+    GSCALAR(ab_slide_space,"AB_SLIDE_SPACE",AB_SLIDE_SPACE_DEFAULT),
+
 
     // variables not in the g class which contain EEPROM saved variables
 
