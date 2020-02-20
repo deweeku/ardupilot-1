@@ -446,7 +446,8 @@ private:
 #endif
     void do_payload_place(const AP_Mission::Mission_Command& cmd);
     void do_RTL(void);
-
+    void do_manual_loiter();
+    
     bool verify_takeoff();
     bool verify_land();
     bool verify_payload_place();

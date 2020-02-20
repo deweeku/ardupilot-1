@@ -304,7 +304,7 @@ void ModeAB_Waypoint::run()
 
                 case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE:
                     run_loiter_control();
-                    if(abs(target_pitch)<=0.5){
+                    if(abs(target_pitch)<=0.5 && inertial_nav.get_speed_xy()<=30.0){
                         Vector2f Curr_XYPos = Convert_NavPos_to_XYPos(inertial_nav.get_position());
                         Vector2f Curr_XYPos_TF = Transform_Point_to_BA_Frame(Curr_XYPos,B_Point,Angle_of_V_BA);
                         if(ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
@@ -330,6 +330,7 @@ void ModeAB_Waypoint::run()
                     wp_nav->set_wp_destination(Next_Dest_Loc,false);
                     ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
                 break;
+
                 case AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN:
                     // Auto to destination
                     wp_nav->update_wpnav();

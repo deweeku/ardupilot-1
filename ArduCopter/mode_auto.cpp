@@ -407,7 +407,6 @@ bool ModeAuto::start_command(const AP_Mission::Mission_Command& cmd)
     if (copter.should_log(MASK_LOG_CMD)) {
         copter.logger.Write_Mission_Cmd(mission, cmd);
     }
-
     switch(cmd.id) {
 
     ///
@@ -749,7 +748,7 @@ void ModeAuto::takeoff_run()
 //      called by auto_run at 100hz or more
 void ModeAuto::wp_run()
 {
-    // process pilot's yaw input
+   // process pilot's yaw input
     float target_yaw_rate = 0;
     if (!copter.failsafe.radio) {
         // get pilot's desired yaw rate
@@ -768,7 +767,7 @@ void ModeAuto::wp_run()
 
     // set motors to full range
     motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
-
+    
     // run waypoint controller
     copter.failsafe_terrain_set_status(wp_nav->update_wpnav());
 
@@ -1118,14 +1117,14 @@ Location ModeAuto::loc_from_cmd(const AP_Mission::Mission_Command& cmd) const
 // do_nav_wp - initiate move to next waypoint
 void ModeAuto::do_nav_wp(const AP_Mission::Mission_Command& cmd)
 {
+    
     Location target_loc = loc_from_cmd(cmd);
-
     // this will be used to remember the time in millis after we reach or pass the WP.
     loiter_time = 0;
     // this is the delay, stored in seconds
     loiter_time_max = cmd.p1;
-
     // Set wp navigation target
+
     wp_start(target_loc);
 
     // if no delay as well as not final waypoint set the waypoint as "fast"
@@ -1496,6 +1495,126 @@ void ModeAuto::do_RTL(void)
 {
     // start rtl in auto flight mode
     rtl_start();
+}
+
+void ModeAuto::do_manual_loiter()
+{
+     float target_roll, target_pitch;
+    float target_yaw_rate = 0.0f;
+    float target_climb_rate = 0.0f;
+    float takeoff_climb_rate = 0.0f;
+
+    // initialize vertical speed and acceleration
+    pos_control->set_max_speed_z(-get_pilot_speed_dn(), g.pilot_speed_up);
+    pos_control->set_max_accel_z(g.pilot_accel_z);
+
+    // process pilot inputs unless we are in radio failsafe
+    if (!copter.failsafe.radio) {
+        // apply SIMPLE mode transform to pilot inputs
+        update_simple_mode();
+
+        // convert pilot input to lean angles
+        get_pilot_desired_lean_angles(target_roll, target_pitch, loiter_nav->get_angle_max_cd(), attitude_control->get_althold_lean_angle_max());
+
+        // process pilot's roll and pitch input
+        loiter_nav->set_pilot_desired_acceleration(target_roll, target_pitch, G_Dt);
+
+        // get pilot's desired yaw rate
+        target_yaw_rate = get_pilot_desired_yaw_rate(channel_yaw->get_control_in());
+
+        // get pilot desired climb rate
+        target_climb_rate = get_pilot_desired_climb_rate(channel_throttle->get_control_in());
+        target_climb_rate = constrain_float(target_climb_rate, -get_pilot_speed_dn(), g.pilot_speed_up);
+    } else {
+        // clear out pilot desired acceleration in case radio failsafe event occurs and we do not switch to RTL for some reason
+        loiter_nav->clear_pilot_desired_acceleration();
+    }
+
+    // relax loiter target if we might be landed
+    if (copter.ap.land_complete_maybe) {
+        loiter_nav->soften_for_landing();
+    }
+
+    // Loiter State Machine Determination
+    AltHoldModeState loiter_state = get_alt_hold_state(target_climb_rate);
+
+    // Loiter State Machine
+    switch (loiter_state) {
+
+    case AltHold_MotorStopped:
+
+        attitude_control->reset_rate_controller_I_terms();
+        attitude_control->set_yaw_target_to_current_heading();
+        pos_control->relax_alt_hold_controllers(0.0f);   // forces throttle output to go to zero
+        loiter_nav->init_target();
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
+        pos_control->update_z_controller();
+        break;
+
+    case AltHold_Takeoff:
+
+        // initiate take-off
+        if (!takeoff.running()) {
+            takeoff.start(constrain_float(g.pilot_takeoff_alt,0.0f,1000.0f));
+        }
+
+        // get takeoff adjusted pilot and takeoff climb rates
+        takeoff.get_climb_rates(target_climb_rate, takeoff_climb_rate);
+
+        // get avoidance adjusted climb rate
+        target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
+
+        // run loiter controller
+        loiter_nav->update();
+
+        // call attitude controller
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
+
+        // update altitude target and call position controller
+        pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
+        pos_control->add_takeoff_climb_rate(takeoff_climb_rate, G_Dt);
+        pos_control->update_z_controller();
+        break;
+
+    case AltHold_Landed_Ground_Idle:
+
+        attitude_control->reset_rate_controller_I_terms();
+        attitude_control->set_yaw_target_to_current_heading();
+        // FALLTHROUGH
+
+    case AltHold_Landed_Pre_Takeoff:
+
+        loiter_nav->init_target();
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(0.0f, 0.0f, 0.0f);
+        pos_control->relax_alt_hold_controllers(0.0f);   // forces throttle output to go to zero
+        pos_control->update_z_controller();
+        break;
+
+    case AltHold_Flying:
+
+        // set motors to full range
+        motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
+
+/*#if PRECISION_LANDING == ENABLED
+        if (do_precision_loiter()) {
+            precision_loiter_xy();
+        }
+#endif*/
+
+        // run loiter controller
+        loiter_nav->update();
+        // call attitude controller
+        attitude_control->input_euler_angle_roll_pitch_euler_rate_yaw(loiter_nav->get_roll(), loiter_nav->get_pitch(), target_yaw_rate);
+        // adjust climb rate using rangefinder
+        target_climb_rate = copter.surface_tracking.adjust_climb_rate(target_climb_rate);
+
+        // get avoidance adjusted climb rate
+        target_climb_rate = get_avoidance_adjusted_climbrate(target_climb_rate);
+
+        pos_control->set_alt_target_from_climb_rate_ff(target_climb_rate, G_Dt, false);
+        pos_control->update_z_controller();
+        break;
+    }
 }
 
 /********************************************************************************/
