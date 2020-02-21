@@ -213,24 +213,27 @@ void ModeAB_Waypoint::run()
         break;
         // Function under above cases are implemented in RC_Channel.cpp ------- RC_Channel_Copter::do_aux_function
         
+        // Calculate transformation matrix to Vector B to A frame
         case CAL_TF:
             wp_nav->wp_and_spline_init();
+
             // CAL_TF from A B point
             // Calulate heading of Vector from B to A
             V_BA = A_Point - B_Point;
-            Angle_of_V_BA = -1*(V_BA.angle() - M_PI_2);
+            Angle_of_V_BA = -1*(V_BA.angle() - M_PI_2); // Calculate Angle from X axis
             Top_End_Pos_TF = V_BA.length();
             Bottom_End_Pos_TF = 0;
-            // Angle_of_V_BA = degrees(Angle_of_V_BA);
-            A_Point_TF = Transform_Point_to_BA_Frame(A_Point, B_Point, Angle_of_V_BA);
-            B_Point_TF = Vector2f(0,0);
-            Curr_Vehicle_2DPosTF = Transform_Point_to_BA_Frame(Convert_NavPos_to_XYPos(inertial_nav.get_position()), B_Point, Angle_of_V_BA);
-            spacing_distance = g.ab_slide_space;
+
+            A_Point_TF = Transform_Point_to_BA_Frame(A_Point, B_Point, Angle_of_V_BA); // Transform point A to Vector B to A frame
+            B_Point_TF = Vector2f(0,0);                                                // Transform B point to Vector B to A frame 
+            Curr_Vehicle_2DPosTF = Transform_Point_to_BA_Frame(Convert_NavPos_to_XYPos(inertial_nav.get_position()), B_Point, Angle_of_V_BA); // transform current vehicle loc to Vector B to A frame
+            spacing_distance = g.ab_slide_space; // load spacing distance from parameter
             
             gcs().send_text(MAV_SEVERITY_INFO, "Angle to North = %f",Angle_of_V_BA);
             gcs().send_text(MAV_SEVERITY_INFO, "A_Point_TF = %f, %f",A_Point_TF.x, A_Point_TF.y);
             gcs().send_text(MAV_SEVERITY_INFO, "Curr_Vehicle_2DPos = %f, %f",Curr_Vehicle_2DPosTF.x, Curr_Vehicle_2DPosTF.y);
 
+            // determine sliding direction (left or right)
             if(Curr_Vehicle_2DPosTF.x >= 0){
                 lr_flag = LR_FLAG::RIGHT;
                 gcs().send_text(MAV_SEVERITY_INFO, "SLIDE TO THE RIGHT");
@@ -241,9 +244,11 @@ void ModeAB_Waypoint::run()
             }
             Prior_Dest_TF = B_Point_TF;
             prior_ab_waypoint_auto_state = AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END;
-            
+
+
+        // Calculate next destination in ZigZag pattern    
         case CAL_NEXT_DEST:
-            // CAL Next Destination
+            // CAL Next Destination on Vector B to A frame
             switch(ab_waypoint_auto_state){
                 case AB_WAYPOINT_AUTO_STATE::SLIDE:
                     if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_TOP_END)
@@ -282,50 +287,61 @@ void ModeAB_Waypoint::run()
             };
             
             Prior_Dest_TF = Next_Dest_TF;
-            // Convert Next_Dest_TF to Next_Dest_Loc
+
+            // Transform calculated next destination in Vector B to A frame to N-E frame before set for drone
             Next_Dest = Transform_BA_Fram_to_Point_NE(Next_Dest_TF, B_Point, Angle_of_V_BA);
             Current_Alt = inertial_nav.get_altitude();
             Next_Dest_Loc = Vector3f(Next_Dest.y, Next_Dest.x, Current_Alt);
-            wp_nav->set_wp_destination(Next_Dest_Loc,false);
-            //pos_control->set_pos_target(Next_Dest_Loc);
+            wp_nav->set_wp_destination(Next_Dest_Loc,false); // set next destination for drone
+
             // set motors to full range
             motors->set_desired_spool_state(AP_Motors::DesiredSpoolState::THROTTLE_UNLIMITED);
 
+        // Move the drone to calculated next destination
         case MOVE_TO_DEST:
             float target_roll, target_pitch;
-            float target_climb_rate = get_pilot_desired_climb_rate(channel_throttle->get_control_in());
-            target_climb_rate = constrain_float(target_climb_rate, -get_pilot_speed_dn(), g.pilot_speed_up);
+
+            // get climb rate input from pilot
+            float target_climb_rate = get_pilot_desired_climb_rate(channel_throttle->get_control_in()); 
+            target_climb_rate = constrain_float(target_climb_rate, -get_pilot_speed_dn(), g.pilot_speed_up); 
+
+            // get roll-pitch rate input from pilot
             get_pilot_desired_lean_angles(target_roll, target_pitch, loiter_nav->get_angle_max_cd(), attitude_control->get_althold_lean_angle_max());
 
+
+            // Manage drone behavior when pilot intervension
             switch(ab_waypoint_move_to_dest_state)
             {
-                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT:
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT: // Active once pilot move altitude stick up or down...De-active once pilot move altitude stick to nuetral
                     run_loiter_control();
                     if(abs(target_climb_rate)<=g.ab_min_input_climb_rate) ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST;
                 break;
-                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE:
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EDGE: // Active once pilot move Pitch stick up or down...De-active once pilot move Pitch stick to nuetral
                     run_loiter_control();
                     if(abs(target_pitch)<=g.ab_min_input_roll_pitch_rate && inertial_nav.get_speed_xy()<=g.ab_min_xy_speed){
                         Vector2f Curr_XYPos = Convert_NavPos_to_XYPos(inertial_nav.get_position());
-                        Vector2f Curr_XYPos_TF = Transform_Point_to_BA_Frame(Curr_XYPos,B_Point,Angle_of_V_BA);
+                        Vector2f Curr_XYPos_TF = Transform_Point_to_BA_Frame(Curr_XYPos,B_Point,Angle_of_V_BA); // Transform current pos to Vector B to A
+
+                        // Update Top_End_Pos_TF or Bottom_End_Pos_TF
                         if(ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
                         {
-                            if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_TOP_END)
+                            if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_TOP_END) 
                             {
-                                Top_End_Pos_TF = Curr_XYPos_TF.y;
+                                Top_End_Pos_TF = Curr_XYPos_TF.y;                          
                                 gcs().send_text(MAV_SEVERITY_INFO, "Cal Top_End_Pos_TF");
                             }else if(prior_ab_waypoint_auto_state==AB_WAYPOINT_AUTO_STATE::TO_BOTTOM_END){
                                 Bottom_End_Pos_TF = Curr_XYPos_TF.y;
                                 gcs().send_text(MAV_SEVERITY_INFO, "Cal Bottom_End_Pos_TF");
                             }
                         }
-                        ab_waypoint_state = CAL_NEXT_DEST;
+
+                        ab_waypoint_state = CAL_NEXT_DEST; // Re-calculate next destination after update 
                         wp_nav->wp_and_spline_init();
                         ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::NORMAL_RUN;
                     }
                 break;
 
-                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EXTENSION:
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_EXTENSION: // Active once pilot move Roll stick up or down...De-active once pilot move Roll stick to nuetral
                     run_loiter_control();
                     if(abs(target_roll)<=g.ab_min_input_roll_pitch_rate && inertial_nav.get_speed_xy()<=g.ab_min_xy_speed){
                         Vector2f Curr_XYPos = Convert_NavPos_to_XYPos(inertial_nav.get_position());
@@ -341,7 +357,7 @@ void ModeAB_Waypoint::run()
                     }
                 break;
 
-                case AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST:
+                case AB_WAYPOINT_MOVE_TO_DEST_STATE::UPDATE_DEST: // Update destination point after altitude changed
                     Current_Alt = inertial_nav.get_altitude();
                     Next_Dest_Loc = Vector3f(Next_Dest.y, Next_Dest.x, Current_Alt);
                     wp_nav->wp_and_spline_init();
@@ -363,6 +379,7 @@ void ModeAB_Waypoint::run()
                         ab_waypoint_state = MOVE_TO_DEST;
                     }   
 
+                    // State transition
                     if(abs(target_climb_rate)>g.ab_min_input_climb_rate && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
                         ab_waypoint_move_to_dest_state = AB_WAYPOINT_MOVE_TO_DEST_STATE::CHANGE_ALT;
                     else if(abs(target_pitch)>g.ab_min_input_roll_pitch_rate && ab_waypoint_auto_state == AB_WAYPOINT_AUTO_STATE::SLIDE)
